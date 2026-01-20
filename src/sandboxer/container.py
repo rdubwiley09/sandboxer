@@ -54,22 +54,29 @@ def run_container(
     if name is None:
         name = generate_container_name(folder_path)
 
-    cmd = ["podman", "run"]
+    cmd = ["podman", "run", "--replace"]
 
     if detach:
         cmd.append("-d")
     else:
         cmd.extend(["-it"])
 
-    cmd.extend([
-        "--name", name,
-        "--userns=keep-id",
-        "--label", f"{LABEL_MANAGED}=true",
-        "--label", f"{LABEL_MOUNTED_PATH}={folder_path}",
-        "-v", f"{folder_path}:{mount_target}:Z",
-        "-w", mount_target,
-        image,
-    ])
+    cmd.extend(
+        [
+            "--name",
+            name,
+            "--userns=keep-id",
+            "--label",
+            f"{LABEL_MANAGED}=true",
+            "--label",
+            f"{LABEL_MOUNTED_PATH}={folder_path}",
+            "-v",
+            f"{folder_path}:{mount_target}:Z",
+            "-w",
+            mount_target,
+            image,
+        ]
+    )
 
     if detach:
         cmd.append("sleep")
@@ -94,9 +101,12 @@ def list_containers(running_only: bool = False) -> list[Container]:
         List of Container objects
     """
     cmd = [
-        "podman", "ps",
-        "--filter", f"label={LABEL_MANAGED}=true",
-        "--format", "{{.ID}}|{{.Names}}|{{.Status}}|{{.Labels}}",
+        "podman",
+        "ps",
+        "--filter",
+        f"label={LABEL_MANAGED}=true",
+        "--format",
+        "{{.ID}}|{{.Names}}|{{.Status}}|{{.Labels}}",
     ]
 
     if not running_only:
@@ -130,12 +140,14 @@ def list_containers(running_only: bool = False) -> list[Container]:
                     mounted_path = label.split(":", 1)[1]
                     break
 
-        containers.append(Container(
-            id=container_id[:12],
-            name=name,
-            status=status,
-            mounted_path=mounted_path,
-        ))
+        containers.append(
+            Container(
+                id=container_id[:12],
+                name=name,
+                status=status,
+                mounted_path=mounted_path,
+            )
+        )
 
     return containers
 
@@ -163,13 +175,31 @@ def attach_container(name_or_id: str) -> None:
     subprocess.run(["podman", "exec", "-it", name_or_id, "bash"])
 
 
-def exec_in_container(name_or_id: str, command: list[str]) -> subprocess.CompletedProcess:
+def exec_in_container(
+    name_or_id: str, command: list[str]
+) -> subprocess.CompletedProcess:
     """Execute a command in a container and return the result."""
     return subprocess.run(
         ["podman", "exec", name_or_id] + command,
         capture_output=True,
         text=True,
     )
+
+
+def find_container_by_name(name: str) -> Container | None:
+    """Find a container by name (running or stopped).
+
+    Args:
+        name: Container name to search for
+
+    Returns:
+        Container object if found, None otherwise
+    """
+    containers = list_containers(running_only=False)
+    for container in containers:
+        if container.name == name:
+            return container
+    return None
 
 
 def inspect_container(name_or_id: str) -> subprocess.CompletedProcess:

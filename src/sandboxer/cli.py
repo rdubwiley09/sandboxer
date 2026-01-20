@@ -12,6 +12,7 @@ from sandboxer.container import (
     DEFAULT_IMAGE,
     MOUNT_TARGET,
     attach_container,
+    find_container_by_name,
     list_containers,
     remove_container,
     run_container,
@@ -37,7 +38,8 @@ def main(
     version: Annotated[
         Optional[bool],
         typer.Option(
-            "--version", "-v",
+            "--version",
+            "-v",
             callback=version_callback,
             is_eager=True,
             help="Show version and exit.",
@@ -70,19 +72,100 @@ def run(
     ] = False,
     name: Annotated[
         Optional[str],
-        typer.Option("--name", "-n", help="Container name (auto-generated if not provided)."),
+        typer.Option(
+            "--name", "-n", help="Container name (auto-generated if not provided)."
+        ),
     ] = None,
     container_dir: Annotated[
         str,
-        typer.Option("--container-dir", "-c", help="Directory inside the container to mount the folder to."),
+        typer.Option(
+            "--container-dir",
+            "-c",
+            help="Directory inside the container to mount the folder to.",
+        ),
     ] = MOUNT_TARGET,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            "-f",
+            help="Skip confirmation prompts when removing stopped containers.",
+        ),
+    ] = False,
 ) -> None:
     """Run a sandboxed container with the specified folder mounted."""
     folder = folder.resolve()
 
+    # Generate container name if not provided
+    if name is None:
+        from sandboxer.container import generate_container_name
+
+        name = generate_container_name(folder)
+
+    # Check if container with this name already exists
+    existing_container = find_container_by_name(name)
+
+    if existing_container:
+        # Check if container is running
+        if (
+            "Up" in existing_container.status
+            or "running" in existing_container.status.lower()
+        ):
+            # Container is running - attach to it
+            if existing_container.mounted_path and str(
+                existing_container.mounted_path
+            ) != str(folder):
+                console.print(
+                    f"[yellow]Warning:[/yellow] Running container '{name}' is mounted to '{existing_container.mounted_path}' but you requested '{folder}'."
+                )
+                console.print("Connecting anyway...\n")
+            else:
+                console.print(
+                    f"Found running container '{name}'. Connecting to it...\n"
+                )
+
+            if detach:
+                console.print(f"[green]Container '{name}' is already running.[/green]")
+                console.print(f"Container ID: {existing_container.id}")
+            else:
+                attach_container(name)
+            return
+
+        # Container is stopped - ask for confirmation to remove it
+        console.print(f"Found stopped container '{name}' with the same name.")
+
+        if force:
+            console.print("Removing stopped container (force flag used)...")
+            remove_result = remove_container(name)
+            if remove_result.returncode != 0:
+                console.print(
+                    f"[red]Error removing stopped container:[/red] {remove_result.stderr}",
+                    err=True,
+                )
+                raise typer.Exit(1)
+        else:
+            # Ask for user confirmation
+            response = typer.confirm("Remove it and create a new one?")
+            if not response:
+                console.print("Operation cancelled.")
+                raise typer.Exit(0)
+
+            remove_result = remove_container(name)
+            if remove_result.returncode != 0:
+                console.print(
+                    f"[red]Error removing stopped container:[/red] {remove_result.stderr}",
+                    err=True,
+                )
+                raise typer.Exit(1)
+
+    # Proceed with container creation
     if detach:
-        console.print(f"Starting container with [cyan]{folder}[/cyan] mounted at [cyan]{container_dir}[/cyan]...")
-        result = run_container(folder, image=image, detach=True, name=name, mount_target=container_dir)
+        console.print(
+            f"Starting container with [cyan]{folder}[/cyan] mounted at [cyan]{container_dir}[/cyan]..."
+        )
+        result = run_container(
+            folder, image=image, detach=True, name=name, mount_target=container_dir
+        )
         if result and result.returncode == 0:
             container_id = result.stdout.strip()[:12]
             console.print(f"[green]Container started:[/green] {container_id}")
@@ -90,9 +173,13 @@ def run(
             console.print(f"[red]Error:[/red] {result.stderr}", err=True)
             raise typer.Exit(1)
     else:
-        console.print(f"Starting interactive container with [cyan]{folder}[/cyan] mounted at [cyan]{container_dir}[/cyan]...")
+        console.print(
+            f"Starting interactive container with [cyan]{folder}[/cyan] mounted at [cyan]{container_dir}[/cyan]..."
+        )
         console.print("Type 'exit' to leave the container.\n")
-        run_container(folder, image=image, detach=False, name=name, mount_target=container_dir)
+        run_container(
+            folder, image=image, detach=False, name=name, mount_target=container_dir
+        )
 
 
 @app.command("list")

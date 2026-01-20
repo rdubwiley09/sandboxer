@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     neovim \
     tmux \
+    podman \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with passwordless sudo
