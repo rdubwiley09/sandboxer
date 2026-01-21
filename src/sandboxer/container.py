@@ -12,6 +12,19 @@ LABEL_MANAGED = "com.sandboxer.managed"
 LABEL_MOUNTED_PATH = "com.sandboxer.mounted-path"
 
 
+def pull_image(image: str) -> subprocess.CompletedProcess:
+    """Pull a container image with visible progress.
+
+    Args:
+        image: Container image to pull
+
+    Returns:
+        CompletedProcess with the result
+    """
+    # Don't capture stdout so progress is visible, but capture stderr for errors
+    return subprocess.run(["podman", "pull", image], stderr=subprocess.PIPE, text=True)
+
+
 @dataclass
 class Container:
     """Represents a sandboxer-managed container."""
@@ -85,6 +98,10 @@ def run_container(
         cmd.append("bash")
 
     if detach:
+        # Pull image first with visible progress to avoid appearing frozen
+        pull_result = pull_image(image)
+        if pull_result.returncode != 0:
+            return pull_result
         return subprocess.run(cmd, capture_output=True, text=True)
     else:
         subprocess.run(cmd)
