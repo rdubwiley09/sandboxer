@@ -24,6 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     neovim \
     tmux \
     podman \
+    fuse-overlayfs \
+    uidmap \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with passwordless sudo
@@ -35,6 +37,15 @@ RUN userdel -r ubuntu 2>/dev/null || true \
     && echo "developer ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
     && mkdir -p /home/developer/.local/bin \
     && chown -R developer:developer /home/developer
+
+# Configure subuid/subgid mappings for rootless nested Podman
+RUN echo "developer:100000:65536" >> /etc/subuid \
+    && echo "developer:100000:65536" >> /etc/subgid
+
+# Create XDG_RUNTIME_DIR for rootless Podman (normally created by systemd at login)
+RUN mkdir -p /run/user/1000 \
+    && chown developer:developer /run/user/1000 \
+    && chmod 700 /run/user/1000
 
 # Install Go (architecture-aware)
 RUN case "${TARGETARCH}" in \
@@ -51,6 +62,7 @@ WORKDIR /home/developer
 # Set up PATH and Go environment
 ENV PATH="/home/developer/.local/bin:/home/developer/.bun/bin:/home/developer/.cargo/bin:/home/developer/go/bin:/usr/local/go/bin:${PATH}"
 ENV GOPATH="/home/developer/go"
+ENV XDG_RUNTIME_DIR="/run/user/1000"
 
 # Create Go directories
 RUN mkdir -p "${GOPATH}/src" "${GOPATH}/bin" "${GOPATH}/pkg"
@@ -77,6 +89,31 @@ RUN echo 'export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$HOME/.bun/bin:$HOME
 RUN mkdir -p /home/developer/project \
     /home/developer/.config \
     /home/developer/.cache
+
+# Configure Podman for nested container operation (Podman-in-Podman)
+RUN mkdir -p /home/developer/.config/containers
+
+RUN printf '[storage]\n\
+driver = "overlay"\n\
+runroot = "/run/user/1000/containers"\n\
+graphroot = "/home/developer/.local/share/containers/storage"\n\
+\n\
+[storage.options.overlay]\n\
+mount_program = "/usr/bin/fuse-overlayfs"\n' > /home/developer/.config/containers/storage.conf
+
+RUN printf '[containers]\n\
+netns = "host"\n\
+userns = "host"\n\
+ipcns = "host"\n\
+utsns = "host"\n\
+cgroupns = "host"\n\
+cgroups = "disabled"\n\
+log_driver = "k8s-file"\n\
+default_sysctls = []\n\
+\n\
+[engine]\n\
+cgroup_manager = "cgroupfs"\n\
+events_logger = "file"\n' > /home/developer/.config/containers/containers.conf
 
 # Set working directory to project mount point
 WORKDIR /home/developer/project
