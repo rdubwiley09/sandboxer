@@ -101,6 +101,12 @@ Specify a custom container name:
 sandboxer run /path/to/project --name my-sandbox
 ```
 
+Run without network access (isolated from the internet):
+
+```bash
+sandboxer run /path/to/project --no-internet
+```
+
 ### List sandbox containers
 
 List all sandboxer-managed containers:

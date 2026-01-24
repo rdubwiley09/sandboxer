@@ -51,6 +51,7 @@ def run_container(
     detach: bool = False,
     name: str | None = None,
     mount_target: str = MOUNT_TARGET,
+    no_internet: bool = False,
 ) -> subprocess.CompletedProcess | None:
     """Run a container with the specified folder mounted.
 
@@ -60,6 +61,7 @@ def run_container(
         detach: If True, run in detached mode with sleep infinity
         name: Container name (auto-generated if not provided)
         mount_target: Path inside the container where the folder will be mounted
+        no_internet: If True, disable network access in the container
 
     Returns:
         CompletedProcess for detached mode, None for interactive mode
@@ -68,6 +70,9 @@ def run_container(
         name = generate_container_name(folder_path)
 
     cmd = ["podman", "run", "--replace"]
+
+    if no_internet:
+        cmd.append("--network=none")
 
     if detach:
         cmd.append("-d")

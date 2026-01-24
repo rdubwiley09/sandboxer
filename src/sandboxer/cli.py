@@ -92,6 +92,13 @@ def run(
             help="Skip confirmation prompts when removing stopped containers.",
         ),
     ] = False,
+    no_internet: Annotated[
+        bool,
+        typer.Option(
+            "--no-internet",
+            help="Disable network access in the container.",
+        ),
+    ] = False,
 ) -> None:
     """Run a sandboxed container with the specified folder mounted."""
     folder = folder.resolve()
@@ -164,7 +171,7 @@ def run(
             f"Starting container with [cyan]{folder}[/cyan] mounted at [cyan]{container_dir}[/cyan]..."
         )
         result = run_container(
-            folder, image=image, detach=True, name=name, mount_target=container_dir
+            folder, image=image, detach=True, name=name, mount_target=container_dir, no_internet=no_internet
         )
         if result and result.returncode == 0:
             container_id = result.stdout.strip()[:12]
@@ -178,7 +185,7 @@ def run(
         )
         console.print("Type 'exit' to leave the container.\n")
         run_container(
-            folder, image=image, detach=False, name=name, mount_target=container_dir
+            folder, image=image, detach=False, name=name, mount_target=container_dir, no_internet=no_internet
         )
 
 
