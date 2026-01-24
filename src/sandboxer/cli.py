@@ -12,6 +12,7 @@ from sandboxer.container import (
     DEFAULT_IMAGE,
     MOUNT_TARGET,
     attach_container,
+    exec_in_container,
     find_container_by_name,
     list_containers,
     remove_container,
@@ -99,8 +100,29 @@ def run(
             help="Disable network access in the container.",
         ),
     ] = False,
+    only_claude: Annotated[
+        bool,
+        typer.Option(
+            "--only-claude",
+            help="Restrict network access to Claude API only.",
+        ),
+    ] = False,
+    only_dev: Annotated[
+        bool,
+        typer.Option(
+            "--only-dev",
+            help="Restrict network to Claude API + package managers (uv, bun, go).",
+        ),
+    ] = False,
 ) -> None:
     """Run a sandboxed container with the specified folder mounted."""
+    network_flags = sum([no_internet, only_claude, only_dev])
+    if network_flags > 1:
+        console.print(
+            "[red]Error:[/red] --no-internet, --only-claude, and --only-dev are mutually exclusive."
+        )
+        raise typer.Exit(1)
+
     folder = folder.resolve()
 
     # Generate container name if not provided
@@ -171,7 +193,8 @@ def run(
             f"Starting container with [cyan]{folder}[/cyan] mounted at [cyan]{container_dir}[/cyan]..."
         )
         result = run_container(
-            folder, image=image, detach=True, name=name, mount_target=container_dir, no_internet=no_internet
+            folder, image=image, detach=True, name=name, mount_target=container_dir,
+            no_internet=no_internet, only_claude=only_claude, only_dev=only_dev
         )
         if result and result.returncode == 0:
             container_id = result.stdout.strip()[:12]
@@ -185,7 +208,8 @@ def run(
         )
         console.print("Type 'exit' to leave the container.\n")
         run_container(
-            folder, image=image, detach=False, name=name, mount_target=container_dir, no_internet=no_internet
+            folder, image=image, detach=False, name=name, mount_target=container_dir,
+            no_internet=no_internet, only_claude=only_claude, only_dev=only_dev
         )
 
 
@@ -265,6 +289,31 @@ def attach(
     console.print(f"Attaching to container [cyan]{container}[/cyan]...")
     console.print("Type 'exit' to leave the container.\n")
     attach_container(container)
+
+
+@app.command()
+def turn_off_claude_websearch(
+    container: Annotated[
+        str,
+        typer.Argument(help="Container name or ID to configure."),
+    ],
+) -> None:
+    """Disable Claude Code web search tools in a container."""
+    console.print(
+        f"Disabling Claude web search in container [cyan]{container}[/cyan]..."
+    )
+
+    # Use claude config to disable web search
+    result = exec_in_container(
+        container,
+        ["claude", "config", "set", "webSearch", "false"],
+    )
+
+    if result.returncode == 0:
+        console.print("[green]Claude web search disabled.[/green]")
+    else:
+        console.print(f"[red]Error:[/red] {result.stderr}", err=True)
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

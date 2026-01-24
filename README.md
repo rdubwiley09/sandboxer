@@ -107,6 +107,37 @@ Run without network access (isolated from the internet):
 sandboxer run /path/to/project --no-internet
 ```
 
+Run with Claude API access only (blocks all other internet traffic):
+
+```bash
+sandboxer run /path/to/project --only-claude
+```
+
+Run with Claude API + package manager access (for development):
+
+```bash
+sandboxer run /path/to/project --only-dev
+```
+
+### Network Restriction Modes
+
+| Flag | Description |
+|------|-------------|
+| `--no-internet` | Complete network isolation. No internet access at all. |
+| `--only-claude` | Only allows connections to the Claude API (api.anthropic.com). Useful for AI-assisted coding without external network access. |
+| `--only-dev` | Allows Claude API plus common package registries for development work. |
+
+The `--only-dev` flag allows access to:
+- **Claude API**: api.anthropic.com
+- **Python (uv/pip)**: pypi.org, files.pythonhosted.org
+- **JavaScript (bun/npm)**: registry.npmjs.org, npmjs.com
+- **Go**: proxy.golang.org, sum.golang.org, storage.googleapis.com
+- **Tool updates**: github.com, api.github.com, objects.githubusercontent.com, raw.githubusercontent.com, astral.sh, bun.sh
+
+Both `--only-claude` and `--only-dev` also disable Claude Code's WebSearch and WebFetch tools automatically.
+
+These flags are mutually exclusive - you can only use one network restriction mode at a time.
+
 ### List sandbox containers
 
 List all sandboxer-managed containers:

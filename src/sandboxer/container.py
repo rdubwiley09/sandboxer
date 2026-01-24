@@ -6,10 +6,102 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-DEFAULT_IMAGE = "rdubwiley/sandboxer"
+DEFAULT_IMAGE = "docker.io/rdubwiley/sandboxer"
 MOUNT_TARGET = "/home/developer/project"
 LABEL_MANAGED = "com.sandboxer.managed"
 LABEL_MOUNTED_PATH = "com.sandboxer.mounted-path"
+
+
+def _generate_dev_only_firewall_script() -> str:
+    """Generate a shell script to set up iptables for dev-only access (Claude + package managers)."""
+    return """
+# Allowed domains for dev mode
+ALLOWED_DOMAINS="
+api.anthropic.com
+pypi.org
+files.pythonhosted.org
+registry.npmjs.org
+npmjs.com
+proxy.golang.org
+sum.golang.org
+storage.googleapis.com
+github.com
+api.github.com
+objects.githubusercontent.com
+raw.githubusercontent.com
+astral.sh
+bun.sh
+"
+
+# Allow loopback
+sudo iptables -A OUTPUT -o lo -j ACCEPT
+sudo iptables -A INPUT -i lo -j ACCEPT
+
+# Allow established connections
+sudo iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow DNS (needed for ongoing resolution)
+sudo iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+# Allow HTTPS to each allowed domain
+for domain in $ALLOWED_DOMAINS; do
+    DOMAIN_IPS=$(getent ahostsv4 $domain 2>/dev/null | awk '{print $1}' | sort -u)
+    for ip in $DOMAIN_IPS; do
+        sudo iptables -A OUTPUT -p tcp --dport 443 -d $ip -j ACCEPT
+    done
+done
+
+# Drop everything else
+sudo iptables -A OUTPUT -j DROP
+
+# Disable Claude web search by creating user settings
+mkdir -p ~/.claude
+cat > ~/.claude/settings.json << 'SETTINGS_EOF'
+{
+  "permissions": {
+    "deny": ["WebSearch", "WebFetch"]
+  }
+}
+SETTINGS_EOF
+"""
+
+
+def _generate_claude_only_firewall_script() -> str:
+    """Generate a shell script to set up iptables for Claude API only access."""
+    return """
+# Resolve Claude API IPs (IPv4 only - filter out IPv6)
+CLAUDE_IPS=$(getent ahostsv4 api.anthropic.com | awk '{print $1}' | sort -u)
+
+# Allow loopback
+sudo iptables -A OUTPUT -o lo -j ACCEPT
+sudo iptables -A INPUT -i lo -j ACCEPT
+
+# Allow established connections
+sudo iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow DNS (needed for ongoing resolution)
+sudo iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+sudo iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+# Allow HTTPS to Claude API IPs
+for ip in $CLAUDE_IPS; do
+    sudo iptables -A OUTPUT -p tcp --dport 443 -d $ip -j ACCEPT
+done
+
+# Drop everything else
+sudo iptables -A OUTPUT -j DROP
+
+# Disable Claude web search by creating user settings
+mkdir -p ~/.claude
+cat > ~/.claude/settings.json << 'SETTINGS_EOF'
+{
+  "permissions": {
+    "deny": ["WebSearch", "WebFetch"]
+  }
+}
+SETTINGS_EOF
+"""
 
 
 def pull_image(image: str) -> subprocess.CompletedProcess:
@@ -52,6 +144,8 @@ def run_container(
     name: str | None = None,
     mount_target: str = MOUNT_TARGET,
     no_internet: bool = False,
+    only_claude: bool = False,
+    only_dev: bool = False,
 ) -> subprocess.CompletedProcess | None:
     """Run a container with the specified folder mounted.
 
@@ -62,6 +156,8 @@ def run_container(
         name: Container name (auto-generated if not provided)
         mount_target: Path inside the container where the folder will be mounted
         no_internet: If True, disable network access in the container
+        only_claude: If True, restrict network to Claude API only
+        only_dev: If True, restrict network to Claude API + package managers
 
     Returns:
         CompletedProcess for detached mode, None for interactive mode
@@ -97,11 +193,22 @@ def run_container(
         ]
     )
 
-    if detach:
-        cmd.append("sleep")
-        cmd.append("infinity")
+    # Determine the final command to run
+    if only_claude or only_dev:
+        if only_dev:
+            firewall_script = _generate_dev_only_firewall_script()
+        else:
+            firewall_script = _generate_claude_only_firewall_script()
+        if detach:
+            final_cmd = f"{firewall_script}\nexec sleep infinity"
+        else:
+            final_cmd = f"{firewall_script}\nexec bash"
+        cmd.extend(["sh", "-c", final_cmd])
     else:
-        cmd.append("bash")
+        if detach:
+            cmd.extend(["sleep", "infinity"])
+        else:
+            cmd.append("bash")
 
     if detach:
         # Pull image first with visible progress to avoid appearing frozen
