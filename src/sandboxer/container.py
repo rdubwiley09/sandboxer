@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 DEFAULT_IMAGE = "docker.io/rdubwiley/sandboxer"
+DEFAULT_ENGINE = "podman"
 MOUNT_TARGET = "/home/developer/project"
 LABEL_MANAGED = "com.sandboxer.managed"
 LABEL_MOUNTED_PATH = "com.sandboxer.mounted-path"
@@ -104,17 +105,18 @@ SETTINGS_EOF
 """
 
 
-def pull_image(image: str) -> subprocess.CompletedProcess:
+def pull_image(image: str, engine: str = DEFAULT_ENGINE) -> subprocess.CompletedProcess:
     """Pull a container image with visible progress.
 
     Args:
         image: Container image to pull
+        engine: Container engine to use (podman or docker)
 
     Returns:
         CompletedProcess with the result
     """
     # Don't capture stdout so progress is visible, but capture stderr for errors
-    return subprocess.run(["podman", "pull", image], stderr=subprocess.PIPE, text=True)
+    return subprocess.run([engine, "pull", image], stderr=subprocess.PIPE, text=True)
 
 
 @dataclass
@@ -146,6 +148,7 @@ def run_container(
     no_internet: bool = False,
     only_claude: bool = False,
     only_dev: bool = False,
+    engine: str = DEFAULT_ENGINE,
 ) -> subprocess.CompletedProcess | None:
     """Run a container with the specified folder mounted.
 
@@ -158,6 +161,7 @@ def run_container(
         no_internet: If True, disable network access in the container
         only_claude: If True, restrict network to Claude API only
         only_dev: If True, restrict network to Claude API + package managers
+        engine: Container engine to use (podman or docker)
 
     Returns:
         CompletedProcess for detached mode, None for interactive mode
@@ -165,7 +169,11 @@ def run_container(
     if name is None:
         name = generate_container_name(folder_path)
 
-    cmd = ["podman", "run", "--replace"]
+    cmd = [engine, "run"]
+
+    # --replace is podman-specific, for docker we need to handle differently
+    if engine == "podman":
+        cmd.append("--replace")
 
     if no_internet:
         cmd.append("--network=none")
@@ -179,7 +187,15 @@ def run_container(
         [
             "--name",
             name,
-            "--userns=keep-id",
+        ]
+    )
+
+    # --userns=keep-id is podman-specific
+    if engine == "podman":
+        cmd.append("--userns=keep-id")
+
+    cmd.extend(
+        [
             "--privileged",
             "--label",
             f"{LABEL_MANAGED}=true",
@@ -212,7 +228,7 @@ def run_container(
 
     if detach:
         # Pull image first with visible progress to avoid appearing frozen
-        pull_result = pull_image(image)
+        pull_result = pull_image(image, engine=engine)
         if pull_result.returncode != 0:
             return pull_result
         return subprocess.run(cmd, capture_output=True, text=True)
@@ -221,17 +237,18 @@ def run_container(
         return None
 
 
-def list_containers(running_only: bool = False) -> list[Container]:
+def list_containers(running_only: bool = False, engine: str = DEFAULT_ENGINE) -> list[Container]:
     """List sandboxer-managed containers.
 
     Args:
         running_only: If True, only list running containers
+        engine: Container engine to use (podman or docker)
 
     Returns:
         List of Container objects
     """
     cmd = [
-        "podman",
+        engine,
         "ps",
         "--filter",
         f"label={LABEL_MANAGED}=true",
@@ -282,60 +299,87 @@ def list_containers(running_only: bool = False) -> list[Container]:
     return containers
 
 
-def stop_container(name_or_id: str) -> subprocess.CompletedProcess:
-    """Stop a container by name or ID."""
+def stop_container(name_or_id: str, engine: str = DEFAULT_ENGINE) -> subprocess.CompletedProcess:
+    """Stop a container by name or ID.
+
+    Args:
+        name_or_id: Container name or ID
+        engine: Container engine to use (podman or docker)
+    """
     return subprocess.run(
-        ["podman", "stop", name_or_id],
+        [engine, "stop", name_or_id],
         capture_output=True,
         text=True,
     )
 
 
-def remove_container(name_or_id: str) -> subprocess.CompletedProcess:
-    """Remove a container by name or ID."""
+def remove_container(name_or_id: str, engine: str = DEFAULT_ENGINE) -> subprocess.CompletedProcess:
+    """Remove a container by name or ID.
+
+    Args:
+        name_or_id: Container name or ID
+        engine: Container engine to use (podman or docker)
+    """
     return subprocess.run(
-        ["podman", "rm", name_or_id],
+        [engine, "rm", name_or_id],
         capture_output=True,
         text=True,
     )
 
 
-def attach_container(name_or_id: str) -> None:
-    """Exec into a running container."""
-    subprocess.run(["podman", "exec", "-it", name_or_id, "bash"])
+def attach_container(name_or_id: str, engine: str = DEFAULT_ENGINE) -> None:
+    """Exec into a running container.
+
+    Args:
+        name_or_id: Container name or ID
+        engine: Container engine to use (podman or docker)
+    """
+    subprocess.run([engine, "exec", "-it", name_or_id, "bash"])
 
 
 def exec_in_container(
-    name_or_id: str, command: list[str]
+    name_or_id: str, command: list[str], engine: str = DEFAULT_ENGINE
 ) -> subprocess.CompletedProcess:
-    """Execute a command in a container and return the result."""
+    """Execute a command in a container and return the result.
+
+    Args:
+        name_or_id: Container name or ID
+        command: Command to execute
+        engine: Container engine to use (podman or docker)
+    """
     return subprocess.run(
-        ["podman", "exec", name_or_id] + command,
+        [engine, "exec", name_or_id] + command,
         capture_output=True,
         text=True,
     )
 
 
-def find_container_by_name(name: str) -> Container | None:
+def find_container_by_name(name: str, engine: str = DEFAULT_ENGINE) -> Container | None:
     """Find a container by name (running or stopped).
 
     Args:
         name: Container name to search for
+        engine: Container engine to use (podman or docker)
 
     Returns:
         Container object if found, None otherwise
     """
-    containers = list_containers(running_only=False)
+    containers = list_containers(running_only=False, engine=engine)
     for container in containers:
         if container.name == name:
             return container
     return None
 
 
-def inspect_container(name_or_id: str) -> subprocess.CompletedProcess:
-    """Inspect a container and return JSON data."""
+def inspect_container(name_or_id: str, engine: str = DEFAULT_ENGINE) -> subprocess.CompletedProcess:
+    """Inspect a container and return JSON data.
+
+    Args:
+        name_or_id: Container name or ID
+        engine: Container engine to use (podman or docker)
+    """
     return subprocess.run(
-        ["podman", "inspect", name_or_id],
+        [engine, "inspect", name_or_id],
         capture_output=True,
         text=True,
     )
