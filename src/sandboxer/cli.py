@@ -114,8 +114,22 @@ def run(
             help="Restrict network to Claude API + package managers (uv, bun, go).",
         ),
     ] = False,
+    engine: Annotated[
+        str,
+        typer.Option(
+            "--engine",
+            help="Container engine to use (podman or docker).",
+        ),
+    ] = "podman",
 ) -> None:
     """Run a sandboxed container with the specified folder mounted."""
+    # Validate engine parameter
+    if engine not in ("podman", "docker"):
+        console.print(
+            "[red]Error:[/red] --engine must be either 'podman' or 'docker'."
+        )
+        raise typer.Exit(1)
+
     network_flags = sum([no_internet, only_claude, only_dev])
     if network_flags > 1:
         console.print(
@@ -132,7 +146,7 @@ def run(
         name = generate_container_name(folder)
 
     # Check if container with this name already exists
-    existing_container = find_container_by_name(name)
+    existing_container = find_container_by_name(name, engine=engine)
 
     if existing_container:
         # Check if container is running
@@ -157,7 +171,7 @@ def run(
                 console.print(f"[green]Container '{name}' is already running.[/green]")
                 console.print(f"Container ID: {existing_container.id}")
             else:
-                attach_container(name)
+                attach_container(name, engine=engine)
             return
 
         # Container is stopped - ask for confirmation to remove it
@@ -165,7 +179,7 @@ def run(
 
         if force:
             console.print("Removing stopped container (force flag used)...")
-            remove_result = remove_container(name)
+            remove_result = remove_container(name, engine=engine)
             if remove_result.returncode != 0:
                 console.print(
                     f"[red]Error removing stopped container:[/red] {remove_result.stderr}",
@@ -179,7 +193,7 @@ def run(
                 console.print("Operation cancelled.")
                 raise typer.Exit(0)
 
-            remove_result = remove_container(name)
+            remove_result = remove_container(name, engine=engine)
             if remove_result.returncode != 0:
                 console.print(
                     f"[red]Error removing stopped container:[/red] {remove_result.stderr}",
@@ -194,7 +208,8 @@ def run(
         )
         result = run_container(
             folder, image=image, detach=True, name=name, mount_target=container_dir,
-            no_internet=no_internet, only_claude=only_claude, only_dev=only_dev
+            no_internet=no_internet, only_claude=only_claude, only_dev=only_dev,
+            engine=engine
         )
         if result and result.returncode == 0:
             container_id = result.stdout.strip()[:12]
@@ -209,7 +224,8 @@ def run(
         console.print("Type 'exit' to leave the container.\n")
         run_container(
             folder, image=image, detach=False, name=name, mount_target=container_dir,
-            no_internet=no_internet, only_claude=only_claude, only_dev=only_dev
+            no_internet=no_internet, only_claude=only_claude, only_dev=only_dev,
+            engine=engine
         )
 
 
