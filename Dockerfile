@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     unzip \
     ripgrep \
+    fd-find \
     jq \
     sudo \
     neovim \
@@ -26,7 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     podman \
     fuse-overlayfs \
     uidmap \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s $(which fdfind) /usr/local/bin/fd
 
 # Create non-root user with passwordless sudo
 # Handle case where UID/GID 1000 may already exist (common in Ubuntu)
@@ -81,6 +83,22 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Install OpenCode (longer timeout as it compiles from source)
 RUN curl -fsSL --connect-timeout 60 --max-time 300 https://opencode.ai/install | bash
+
+# Install lazygit (recommended for LazyVim)
+RUN LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | grep -Po '"tag_name": "v\K[^"]*') \
+    && case "${TARGETARCH:-amd64}" in \
+        amd64) LAZYGIT_ARCH="x86_64" ;; \
+        arm64) LAZYGIT_ARCH="arm64" ;; \
+        *) LAZYGIT_ARCH="x86_64" ;; \
+    esac \
+    && curl -Lo lazygit.tar.gz "https://github.com/jesseduffield/lazygit/releases/latest/download/lazygit_${LAZYGIT_VERSION}_Linux_${LAZYGIT_ARCH}.tar.gz" \
+    && tar xf lazygit.tar.gz lazygit \
+    && mv lazygit ~/.local/bin/ \
+    && rm lazygit.tar.gz
+
+# Install LazyVim (Neovim configuration)
+RUN git clone https://github.com/LazyVim/starter ~/.config/nvim \
+    && rm -rf ~/.config/nvim/.git
 
 # Update bashrc with PATH for interactive shells
 RUN echo 'export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/go/bin:/usr/local/go/bin:$PATH"' >> ~/.bashrc
