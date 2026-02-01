@@ -22,13 +22,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fd-find \
     jq \
     sudo \
-    neovim \
     tmux \
     podman \
     fuse-overlayfs \
     uidmap \
     && rm -rf /var/lib/apt/lists/* \
     && ln -s $(which fdfind) /usr/local/bin/fd
+
+# Install latest Neovim from GitHub releases (architecture-aware)
+RUN NVIM_VERSION=$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep -Po '"tag_name": "\K[^"]*') \
+    && case "${TARGETARCH}" in \
+        amd64) NVIM_ARCH="x86_64" ;; \
+        arm64) NVIM_ARCH="arm64" ;; \
+        *) NVIM_ARCH="x86_64" ;; \
+    esac \
+    && curl -LO "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-${NVIM_ARCH}.tar.gz" \
+    && tar -xzf nvim-linux-${NVIM_ARCH}.tar.gz \
+    && mv nvim-linux-${NVIM_ARCH} /opt/nvim \
+    && ln -s /opt/nvim/bin/nvim /usr/local/bin/nvim \
+    && rm nvim-linux-${NVIM_ARCH}.tar.gz
 
 # Create non-root user with passwordless sudo
 # Handle case where UID/GID 1000 may already exist (common in Ubuntu)
