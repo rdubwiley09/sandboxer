@@ -149,6 +149,8 @@ def run_container(
     only_claude: bool = False,
     only_dev: bool = False,
     engine: str = DEFAULT_ENGINE,
+    expose_ports: bool = True,
+    ports: list[int] | None = None,
 ) -> subprocess.CompletedProcess | None:
     """Run a container with the specified folder mounted.
 
@@ -162,6 +164,8 @@ def run_container(
         only_claude: If True, restrict network to Claude API only
         only_dev: If True, restrict network to Claude API + package managers
         engine: Container engine to use (podman or docker)
+        expose_ports: If True, map container ports to the host
+        ports: List of ports to map (defaults to [3000])
 
     Returns:
         CompletedProcess for detached mode, None for interactive mode
@@ -177,6 +181,12 @@ def run_container(
 
     if no_internet:
         cmd.append("--network=none")
+
+    # Add port mappings (skip when network is disabled)
+    if expose_ports and not no_internet:
+        mapped_ports = ports if ports is not None else [3000]
+        for port in mapped_ports:
+            cmd.extend(["-p", f"{port}:{port}"])
 
     if detach:
         cmd.append("-d")

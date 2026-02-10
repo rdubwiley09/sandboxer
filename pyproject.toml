@@ -1,6 +1,6 @@
 [project]
 name = "sandboxer"
-version = "0.1.5"
+version = "0.1.6"
 description = "A CLI tool for sandboxing folders into containers with Claude Code support"
 readme = "README.md"
 requires-python = ">=3.12"

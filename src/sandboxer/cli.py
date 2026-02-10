@@ -121,6 +121,20 @@ def run(
             help="Container engine to use (podman or docker).",
         ),
     ] = "podman",
+    expose_ports: Annotated[
+        bool,
+        typer.Option(
+            "--expose-ports/--no-expose-ports",
+            help="Enable or disable port mapping from container to host.",
+        ),
+    ] = True,
+    ports: Annotated[
+        Optional[list[int]],
+        typer.Option(
+            "--ports",
+            help="Ports to expose from the container (default: 3000). Can be specified multiple times.",
+        ),
+    ] = None,
 ) -> None:
     """Run a sandboxed container with the specified folder mounted."""
     # Validate engine parameter
@@ -136,6 +150,12 @@ def run(
             "[red]Error:[/red] --no-internet, --only-claude, and --only-dev are mutually exclusive."
         )
         raise typer.Exit(1)
+
+    if expose_ports and no_internet:
+        console.print(
+            "[yellow]Warning:[/yellow] --expose-ports has no effect with --no-internet. Port mapping disabled."
+        )
+        expose_ports = False
 
     folder = folder.resolve()
 
@@ -209,7 +229,7 @@ def run(
         result = run_container(
             folder, image=image, detach=True, name=name, mount_target=container_dir,
             no_internet=no_internet, only_claude=only_claude, only_dev=only_dev,
-            engine=engine
+            engine=engine, expose_ports=expose_ports, ports=ports
         )
         if result and result.returncode == 0:
             container_id = result.stdout.strip()[:12]
@@ -225,7 +245,7 @@ def run(
         run_container(
             folder, image=image, detach=False, name=name, mount_target=container_dir,
             no_internet=no_internet, only_claude=only_claude, only_dev=only_dev,
-            engine=engine
+            engine=engine, expose_ports=expose_ports, ports=ports
         )
 
 
